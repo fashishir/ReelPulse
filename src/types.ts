@@ -63,6 +63,8 @@ export interface Reel {
   viewTrend: number[]
   externalUrl: string
   thumbnailUrl?: string
+  /** Direct playable video URL. When absent, the player falls back to the simulated poster preview. */
+  videoUrl?: string
 }
 
 export interface FeedFilters {

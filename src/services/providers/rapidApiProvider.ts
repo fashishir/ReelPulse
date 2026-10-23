@@ -132,6 +132,31 @@ function computeVelocity(views: number, postedAtMs: number): number {
   return Math.round(views / ageHours)
 }
 
+/**
+ * Extract a playable video URL from the many shapes the Instagram / Facebook
+ * scrapers return. Falls back to `undefined` when no video URL is present.
+ *
+ * Known shapes:
+ *  - `video_url` (string)
+ *  - `video_versions[].url` (array of progressive URLs)
+ *  - `reel_media.video_url`
+ *  - `dash_info.video_url`
+ */
+function extractVideoUrl(row: Record<string, unknown>): string | undefined {
+  const direct = dig(row, 'video_url', 'reel_media.video_url', 'dash_info.video_url')
+  if (typeof direct === 'string' && direct.trim()) return direct
+
+  const versions = dig(row, 'video_versions', 'reel_media.video_versions')
+  if (Array.isArray(versions)) {
+    const urls = (versions as Record<string, unknown>[])
+      .map((entry) => dig(entry, 'url'))
+      .filter((u): u is string => typeof u === 'string' && u.trim())
+    if (urls.length > 0) return urls[0]
+  }
+
+  return undefined
+}
+
 /** Build AudioTrack from assorted API shapes. */
 function extractAudio(row: Record<string, unknown>): AudioTrack {
   // Path 1 – music_metadata.music_info.music_asset_info
