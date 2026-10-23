@@ -26,3 +26,16 @@ export function createMetaProvider(config: MetaConfig): ReelProvider {
     },
   }
 }
+
+/**
+ * Extract a playable video URL from a Meta Graph media row.
+ *
+ * Reels return `media_url` (direct CDN link) for REEL media_type entries. When
+ * only a permalink is present, the player falls back to the simulated preview
+ * and the "View original" button carries the real destination.
+ */
+export function extractMetaVideoUrl(row: Record<string, unknown>): string | undefined {
+  const url = row.media_url
+  if (typeof url === 'string' && url.trim()) return url
+  return undefined
+}

@@ -231,6 +231,7 @@ function mapRowToReel(row: Record<string, unknown>, platform: Platform): Reel | 
     const audio = extractAudio(row)
     const velocity = computeVelocity(views, postedAtMs)
     const viewTrend = buildViewTrend(views)
+    const videoUrl = extractVideoUrl(row)
 
     return {
       id,
@@ -247,6 +248,7 @@ function mapRowToReel(row: Record<string, unknown>, platform: Platform): Reel | 
       velocity,
       viewTrend,
       externalUrl,
+      videoUrl,
     }
   } catch {
     console.warn('[RapidAPI] Failed to map row:', row)
