@@ -150,7 +150,7 @@ function extractVideoUrl(row: Record<string, unknown>): string | undefined {
   if (Array.isArray(versions)) {
     const urls = (versions as Record<string, unknown>[])
       .map((entry) => dig(entry, 'url'))
-      .filter((u): u is string => typeof u === 'string' && u.trim())
+      .filter((u): u is string => typeof u === 'string' && u.trim() !== '')
     if (urls.length > 0) return urls[0]
   }
 
