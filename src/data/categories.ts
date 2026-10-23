@@ -69,15 +69,16 @@ export const CATEGORY_MAP: Record<CategoryId, CategoryMeta> = Object.fromEntries
 ) as Record<CategoryId, CategoryMeta>
 
 export function categoryMeta(id: CategoryId): CategoryMeta {
-  return CATEGORY_MAP[id]
+  return CATEGORY_MAP[id] ?? CATEGORIES[0]
 }
 
 export function categoryAccent(id: CategoryId): string {
-  return CATEGORY_MAP[id].accent
+  return CATEGORY_MAP[id]?.accent ?? '#38BDF8'
 }
 
 export function categoryLabel(filter: CategoryFilter): string {
-  return filter === 'all' ? 'All categories' : CATEGORY_MAP[filter].label
+  if (filter === 'all') return 'All categories'
+  return CATEGORY_MAP[filter]?.label ?? 'General'
 }
 
 

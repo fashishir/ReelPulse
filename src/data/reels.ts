@@ -452,7 +452,7 @@ const SEEDS: ReelSeed[] = [
   },
   {
     platform: 'instagram',
-    category: 'science' as CategoryId extends 'education' ? 'education' : CategoryId,
+    category: 'education',
     creator: creator('NASA', '@nasa'),
     hook: 'James Webb Telescope zooms into the Pillars of Creation',
     caption:

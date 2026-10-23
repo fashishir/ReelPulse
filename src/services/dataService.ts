@@ -94,7 +94,7 @@ function matchesQuery(reel: Reel, tokens: string[]): boolean {
       reel.hook,
       reel.audio.title,
       reel.audio.artist,
-      CATEGORY_MAP[reel.category].label,
+      CATEGORY_MAP[reel.category]?.label ?? '',
       ...reel.hashtags,
     ].join(' '),
   )
@@ -166,7 +166,9 @@ export function summarizeFor(
   for (const reel of scoped) {
     const metrics = metricFor(reel, timeframe)
     totalViews += metrics.views
-    categoryCounts[reel.category] += 1
+    if (categoryCounts[reel.category] !== undefined) {
+      categoryCounts[reel.category] += 1
+    }
 
     const safeGrowth = 1 + reel.velocity / 100
     previousViews += safeGrowth > 0.05 ? metrics.views / safeGrowth : metrics.views

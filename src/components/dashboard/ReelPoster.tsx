@@ -36,8 +36,8 @@ export function ReelPoster({
 }) {
   const rawId = useId().replace(/:/g, '')
   const uid = `p${rawId}`
-  const palette = CATEGORY_PALETTES[reel.category]
-  const meta = CATEGORY_MAP[reel.category]
+  const palette = CATEGORY_PALETTES[reel.category] ?? CATEGORY_PALETTES.tech
+  const meta = CATEGORY_MAP[reel.category] ?? CATEGORY_MAP.tech
   const seed = hashString(`${reel.id}-${reel.creator.handle}`)
   const angle = 138 + (seed % 32)
   const glowX = 12 + (seed % 26)
