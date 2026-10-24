@@ -6,6 +6,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  Facebook,
   KeyRound,
   Loader2,
   RefreshCw,
@@ -16,7 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import type { ApiSettings, DataSource, Timeframe } from '../../types'
+import type { ApiSettings, DataSource, FacebookVia, Timeframe } from '../../types'
 import { REELS } from '../../data/reels'
 import { CATEGORIES } from '../../data/categories'
 import { TIMEFRAME_META, TIMEFRAME_ORDER } from '../../lib/constants'
@@ -46,6 +47,13 @@ const SOURCE_OPTIONS: {
     description: 'Authentic Facebook & Instagram Reels from verified creators with real URLs.',
     icon: Database,
     badge: 'Ready',
+  },
+  {
+    id: 'facebook',
+    label: 'Live Facebook scrape',
+    description: 'Real-time snapshots scraped server-side from tracked Facebook pages via Apify or RapidAPI.',
+    icon: Facebook,
+    badge: 'Real-time',
   },
   {
     id: 'rapidapi',
@@ -204,6 +212,90 @@ function SourceFields({
     )
   }
 
+  if (source === 'facebook') {
+    const refreshOptions = [5, 10, 15, 30, 60]
+    return (
+      <div className="mt-4 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.025] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold text-white">Live Facebook scrape (server-side)</p>
+            <p className="mt-0.5 text-[9px] text-slate-500">
+              Requests go to your own `/api/reels` endpoint. Scraping, tokens and snapshots stay on the server.
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full border border-emerald-400/20 bg-emerald-400/[0.07] px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-emerald-300">
+            Real-time
+          </span>
+        </div>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <Field label="Scrape through" hint="Server must have matching credentials">
+            <span className="relative block">
+              <select
+                value={draft.fbVia}
+                onChange={(event) => update('fbVia', event.target.value as FacebookVia)}
+                className="h-9 w-full appearance-none rounded-lg border border-white/[0.08] bg-black/25 pl-2.5 pr-7 text-[11px] font-medium text-slate-200 focus:border-ig-pink/30 focus:outline-none"
+                aria-label="Scrape upstream"
+              >
+                <option value="apify">Apify actor (recommended)</option>
+                <option value="rapidapi">RapidAPI Facebook API</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-500" />
+            </span>
+          </Field>
+          <Field label="Refresh while a tab is open" hint="Snapshots re-poll server-side">
+            <span className="relative block">
+              <select
+                value={draft.fbRefreshMinutes}
+                onChange={(event) => update('fbRefreshMinutes', Number(event.target.value))}
+                className="h-9 w-full appearance-none rounded-lg border border-white/[0.08] bg-black/25 pl-2.5 pr-7 text-[11px] font-medium text-slate-200 focus:border-ig-pink/30 focus:outline-none"
+                aria-label="Refresh interval"
+              >
+                {refreshOptions.map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    Every {minutes} minutes
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-500" />
+            </span>
+          </Field>
+        </div>
+
+        <Field label="Tracked Facebook pages" hint="Optional — matches FB_PAGES on the server">
+          <textarea
+            value={draft.fbPages}
+            onChange={(event) => update('fbPages', event.target.value)}
+            placeholder={'https://www.facebook.com/9gag\nhttps://www.facebook.com/NatGeo'}
+            spellCheck={false}
+            className="h-20 w-full resize-none rounded-lg border border-white/[0.08] bg-black/25 px-2.5 py-2 text-[11px] leading-relaxed text-slate-200 placeholder:text-slate-600 focus:border-ig-pink/30 focus:outline-none"
+          />
+          <p className="mt-1 text-[8.5px] leading-relaxed text-slate-600">
+            One page URL or handle per line, up to 50. Leave blank to use the server&apos;s FB_PAGES env var.
+          </p>
+        </Field>
+
+        <div className="mt-3 grid gap-2">
+          <div className="flex items-start gap-2 rounded-lg border border-emerald-400/10 bg-emerald-400/[0.03] px-3 py-2">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400/80" />
+            <p className="text-[9px] leading-relaxed text-emerald-100/55">
+              This source needs the server functions deployed: <code className="text-emerald-200/80">APIFY_TOKEN</code>,
+              <code className="text-emerald-200/80"> APIFY_ACTOR_ID</code> and <code className="text-emerald-200/80">FB_PAGES</code>
+              {' '}as Vercel env vars (or RAPIDAPI_KEY when scraping through RapidAPI). Local dev: run `npx vercel dev`.
+            </p>
+          </div>
+          <div className="flex items-start gap-2 rounded-lg border border-amber-400/10 bg-amber-400/[0.03] px-3 py-2">
+            <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400/80" />
+            <p className="text-[9px] leading-relaxed text-amber-100/45">
+              First load and manual Sync start a fresh scrape (≈30–90s). Afterwards the snapshot is served
+              instantly. Facebook rounds view/share counts, so those metrics are approximations.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const isRapidApi = source === 'rapidapi'
 
   return (
@@ -347,7 +439,11 @@ export function AdminModal({
   }
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings)
-  const nextSync = new Date(new Date(lastSyncedAt).getTime() + 24 * 60 * 60 * 1000)
+  const refreshIntervalMs = draft.source === 'facebook'
+    ? Math.max(3, draft.fbRefreshMinutes) * 60_000
+    : 24 * 60 * 60 * 1000
+  const nextSync = new Date(new Date(lastSyncedAt).getTime() + refreshIntervalMs)
+  const isFacebookSource = draft.source === 'facebook'
 
   const handleSave = () => {
     onSave(draft)
@@ -356,7 +452,9 @@ export function AdminModal({
       description:
         draft.source === 'demo'
           ? 'The demo provider stays active. Your preferences are stored in this browser.'
-          : 'Adapter settings saved. Demo data remains active until the live adapter is wired.',
+          : isFacebookSource
+            ? 'Live Facebook scraping stays active. Requests go through your server endpoint.'
+            : 'Adapter settings saved. Demo data remains active until the live adapter is wired.',
       tone: 'success',
     })
   }
@@ -453,7 +551,7 @@ export function AdminModal({
                 <div>
                   <h3 className="text-[11px] font-semibold text-white">Choose a data source</h3>
                   <p className="mt-0.5 text-[9.5px] text-slate-500">
-                    The provider seam is `ReelProvider`. Demo is fully implemented.
+                    Provider seam: `ReelProvider`. Demo + Live Facebook scrape are fully implemented.
                   </p>
                 </div>
                 <span className="rounded-full border border-emerald-400/15 bg-emerald-400/[0.06] px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-emerald-300">
@@ -552,25 +650,34 @@ export function AdminModal({
 
               <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5">
                 <div>
-                  <p className="text-[11px] font-semibold text-white">Auto-sync every 24 hours</p>
+                  <p className="text-[11px] font-semibold text-white">
+                    {isFacebookSource
+                      ? `Auto-refresh every ${draft.fbRefreshMinutes} minute${draft.fbRefreshMinutes === 1 ? '' : 's'}`
+                      : 'Auto-sync every 24 hours'}
+                  </p>
                   <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
-                    Runs once when the app reopens if a day has passed. Browsers can’t sync while
-                    the tab is closed — a server cron is the production answer.
+                    {isFacebookSource
+                      ? 'Re-polls the server snapshot while a tab is open. Scraping itself runs server-side, so polls stay instant.'
+                      : 'Runs once when the app reopens if a day has passed. Browsers can’t sync while the tab is closed — a server cron is the production answer.'}
                   </p>
                 </div>
                 <Switch
                   checked={draft.autoSync}
                   onChange={(checked) => update('autoSync', checked)}
-                  label="Auto-sync every 24 hours"
+                  label={isFacebookSource ? 'Auto-refresh while open' : 'Auto-sync every 24 hours'}
                 />
               </div>
 
               <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-[11px] font-semibold text-white">Run a manual daily sync</p>
+                    <p className="text-[11px] font-semibold text-white">
+                      {isFacebookSource ? 'Scrape Facebook now' : 'Run a manual daily sync'}
+                    </p>
                     <p className="mt-0.5 text-[9px] text-slate-500">
-                      Refreshes the provider, clears the cache and re-ranks the feed.
+                      {isFacebookSource
+                        ? 'Forces a fresh server-side scrape of your tracked pages. Can take up to a minute.'
+                        : 'Refreshes the provider, clears the cache and re-ranks the feed.'}
                     </p>
                   </div>
                   <button

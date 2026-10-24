@@ -2,7 +2,19 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "functions": {
+    "api/reels.ts": {
+      "maxDuration": 60
+    },
+    "api/refresh.ts": {
+      "maxDuration": 60
+    }
+  },
   "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
     {
       "src": "/assets/(.*)",
       "headers": {

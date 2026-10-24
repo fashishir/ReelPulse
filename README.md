@@ -2,9 +2,11 @@
 
 **The daily pulse of Reels.** A responsive React dashboard for exploring trending Instagram and Facebook Reels by category, timeframe, and engagement.
 
-ReelPulse ships with a fully self-contained demo dataset: 32 fictional Reels, generated SVG poster art, creator profiles, audio tracks, metrics for three timeframes, and an async data service. No API keys, network calls, or remote media are needed to run it.
+ReelPulse ships with a fully self-contained curated dataset: 32 real Reels from public pages, generated SVG poster art, creator profiles, audio tracks, metrics for three timeframes, and an async data service.
 
-> **Demo only.** Every creator, caption, audio track, metric, and poster is fictional. The player is a simulation, and "View original" links point to platform discovery pages rather than real Reels. See [Demo data and limitations](#demo-data-and-limitations).
+It also ships a **live Facebook scrape stack**: serverless functions in `api/` that scrape tracked Facebook pages through Apify (or RapidAPI), cache a real-time snapshot, and serve it to the dashboard — see [Live Facebook scraping](#live-facebook-scraping-real-time-snapshots).
+
+> **Two data modes.** The curated dataset is fully in-browser and needs no keys or network calls. The live Facebook mode scrapes public pages you configure on the server; scrape tokens never reach the browser. See [Live Facebook scraping](#live-facebook-scraping-real-time-snapshots).
 
 ---
 
@@ -27,9 +29,9 @@ ReelPulse ships with a fully self-contained demo dataset: 32 fictional Reels, ge
   - Full caption, hashtags, engagement chart, velocity, and creator details
   - "View original" link, previous/next Reel navigation, keyboard support
 - **Admin / API settings**
-  - Data-source selector with demo, RapidAPI, Apify, and Meta Graph stubs
-  - Auto-sync preference, default timeframe, credential fields
-  - Manual mock sync, normalized dataset export, workspace reset
+  - Data-source selector with curated Demo, **Live Facebook scrape (server-side)**, RapidAPI, Apify, and Meta Graph
+  - Auto-refresh preference (every 5–60 minutes for the live Facebook source), default timeframe
+  - Manual synced scrape, normalized dataset export, workspace reset
 - **Responsive shell**
   - Collapsible desktop sidebar
   - Five-item mobile bottom navigation with raised Sync action
@@ -84,21 +86,34 @@ The theme, glass utilities, custom keyframes, and reduced-motion rules live in `
 ## Project structure
 
 ```text
+api/                           serverless functions (Vercel)
+├─ _lib/
+│  ├─ apify.ts                 Apify actor REST primitives (run + latest dataset)
+│  ├─ rapidapi.ts              RapidAPI page-reels adapter
+│  ├─ normalize.ts             scraped rows → normalized Reel
+│  ├─ config.ts                env vars + request scope overrides
+│  ├─ snapshot.ts              snapshot cache, TTL, background refresh
+│  ├─ http.ts                  access key, body/query parsing
+│  └─ parse.ts                 tolerant field digging for scraper shapes
+├─ reels.ts                    GET/POST /api/reels  — snapshot endpoint
+└─ refresh.ts                  POST /api/refresh — forced fresh scrape
+
 src/
-├─ App.tsx                     app state, filters, sync, modal/nav orchestration
+├─ App.tsx                     app state, filters, sync, provider wiring, polling
 ├─ main.tsx                    React root + ToastProvider
 ├─ index.css                   Tailwind theme, tokens, glass utilities, keyframes
 ├─ types.ts                    shared domain types and category/platform constants
 ├─ data/
-│  ├─ reels.ts                 32 fictional Reels with per-timeframe metrics
+│  ├─ reels.ts                 32 curated Reels with per-timeframe metrics
 │  └─ categories.ts            category metadata, icons, accents, labels
 ├─ services/
 │  ├─ dataService.ts           async query layer, cache, filtering, sorting, KPIs
 │  ├─ settingsService.ts       localStorage settings/sync persistence and reset
 │  └─ providers/
 │     ├─ types.ts              ReelProvider seam and provider config types
-│     ├─ demoProvider.ts       in-memory demo source (currently active)
-│     ├─ rapidApiProvider.ts   scaffolded live adapter
+│     ├─ demoProvider.ts       in-browser curated source
+│     ├─ facebookProvider.ts   live provider → /api/reels + /api/refresh
+│     ├─ rapidApiProvider.ts   live adapter (browser-direct, Instagram-oriented)
 │     ├─ apifyProvider.ts      scaffolded live adapter
 │     └─ metaProvider.ts       scaffolded live adapter
 ├─ hooks/                      dashboard fetch, debounce, focus trap, click-outside, storage
@@ -108,7 +123,9 @@ src/
 │  ├─ filters/                 platform switcher, timeframe, sort tabs, search, pills
 │  ├─ overlay/                 Reel modal, admin modal, explore sheet, shared modal, chart
 │  └─ ui/                      brand marks/icons, avatars, buttons, skeletons, toasts
-└─ lib/                        formatting, constants, class-name helper
+└─ lib/
+   ├─ classify.ts              caption/hashtag → category, hooked captions, hashtags
+   ├─ formatting, constants, class-name helper
 ```
 
 ---
@@ -129,11 +146,70 @@ useDashboard (debounced search)
                                    30-second dataset cache
 ```
 
-The service layer simulates approximately 280 ms of latency so loading, refreshing, and empty states are exercised. Filtering, sorting, KPI aggregation, category counts, velocity averages, and audio ranking all run inside `dataService.ts`; components stay unaware of the data source.
+The service layer keeps filtering, sorting, KPI aggregation, category counts, velocity averages, and audio ranking inside `dataService.ts`; components stay unaware of the data source.
 
 Each Reel has a `metrics` object keyed by `today`, `week`, and `month`, so changing the timeframe updates the rankings, cards, KPIs, and modal data.
 
 Search is accent-insensitive and token-based. It normalizes creator names/handles, hooks, captions, category labels, audio metadata, and hashtags. The `/` key focuses search from anywhere outside an input.
+
+---
+
+## Live Facebook scraping (real-time snapshots)
+
+The **Live Facebook scrape** source turns ReelPulse into a real-data dashboard: tracked public Facebook pages are scraped server-side and served as a fresh snapshot.
+
+### Architecture
+
+```
+Facebook pages
+   │
+   ▼  Apify actor (primary) or RapidAPI (secondary) — server-side only
+/api/* serverless functions (Vercel)
+   │   snapshot cache + TTL + background refresh + tolerant row mapping
+   ▼
+facebookProvider (browser) → GET/POST /api/reels → dataService → UI
+```
+
+- **`GET/POST /api/reels`** serves the snapshot instantly. When the snapshot is older than `SNAPSHOT_TTL_MINUTES` (default 5), the function serves the current one and refreshes in the background — a poll never blocks the UI.
+- **`POST /api/refresh`** (the Sync button) starts a fresh scrape and waits up to ~45 s; if Facebook is slow, it returns the previous snapshot and the next poll picks up the result.
+- Snapshots and age (`syncedAt`) are always reported honestly; when an upstream fails, the last good snapshot is served with a `stale` flag and a warning toast.
+
+### Setup
+
+1. Pick a Facebook Reels actor on the Apify Store (e.g. `dami_studio/facebook-reels-scraper`) and add your pages; or use the RapidAPI Facebook route.
+2. Set env vars on Vercel (`Project → Settings → Environment Variables`) or in `.env` for local `vercel dev` — see `.env.example`:
+
+| Variable | Purpose |
+| --- | --- |
+| `SCRAPE_VIA` | `apify` (default) or `rapidapi` |
+| `APIFY_TOKEN` / `APIFY_ACTOR_ID` | Apify credentials + actor |
+| `APIFY_ACTOR_INPUT` | Optional full actor input JSON (proxy config etc.) |
+| `RAPIDAPI_KEY` / `RAPIDAPI_FACEBOOK_HOST` | RapidAPI credentials |
+| `FB_PAGES` | Tracked pages — JSON array or newline/comma list (URLs or handles) |
+| `RESULTS_LIMIT` | Reels per page per run (1–200, default 30) |
+| `SNAPSHOT_TTL_MINUTES` | Snapshot freshness window (default 5) |
+| `SNAPSHOT_ACCESS_KEY` | Optional shared secret; requests must send `x-reelpulse-key` |
+
+3. Deploy (the functions ship with the repo) or run locally:
+
+```bash
+npx vercel dev      # functions + static on http://localhost:3000
+npm run dev         # Vite UI on :5173, proxies /api/reels + /api/refresh to :3000
+```
+
+4. Admin → API sources → **Live Facebook scrape**, Save, then **Sync now** for the first scrape.
+
+### Cadence and cost
+
+The 5-minute auto-refresh is the default: polls only fire while a tab is visible, snapshots are served instantly, and consecutive polls reuse the cached snapshot. Because each refresh scrapes N pages × `RESULTS_LIMIT` reels, refresh more often than ~15 min only if you accept the credit burn (~100–150 reels/run at default settings). Prices for Facebook Reels actors are per-result — budget from the actor's pricing page.
+
+### Honest caveats
+
+- Unofficial scraping of Facebook violates Meta's ToS; this is for research/demo dashboards on public pages, at your own operational risk.
+- Facebook itself rounds view/share counts ("65K"); reaction and comment counts are exact.
+- `saves` is not exposed publicly → stays 0. Week/month timeframes extrapolate the daily snapshot (matching the RapidAPI adapter's approach).
+- Category assignment is keyword-based from caption/hashtags (shared with the RapidAPI adapter).
+- Scrape video URLs are temporary CDN links; when they expire the player falls back to the simulated preview and "View original" still points at the real permalink.
 
 ---
 
@@ -173,9 +249,14 @@ setReelProvider(
 
 ### Current state of the adapters
 
-The source selector in Admin / API settings persists your choice and credentials, but **the demo provider remains active**. The RapidAPI, Apify, and Meta adapters are intentionally scaffolded and throw `ProviderNotWiredError` until request/response mapping is added. This is stated in the admin UI as well.
+| Source | State |
+| --- | --- |
+| Demo (curated dataset) | Fully implemented, in-browser — the default. |
+| **Live Facebook scrape** | Fully implemented via the `api/` serverless functions (Apify primary, RapidAPI secondary). |
+| RapidAPI | Implemented; Instagram-oriented (`instagram-scraper-api2`), called browser-direct with a key from local settings. |
+| Apify / Meta Graph | Intentionally scaffolded stubs; they throw `ProviderNotWiredError` until wired. |
 
-For production, never call a provider that requires a secret directly from the browser. Route credentials through a server or serverless proxy, then fetch normalized data from your own endpoint.
+Never call a provider that requires a secret directly from the browser. The live Facebook flow follows exactly that rule: credentials live in server env vars and the browser only ever talks to `/api/reels`.
 
 ---
 
@@ -185,13 +266,13 @@ ReelPulse uses `localStorage`:
 
 | Key                     | Contents                                      |
 | ----------------------- | --------------------------------------------- |
-| `reelpulse.settings.v1` | API source, credentials, auto-sync, timeframe |
+| `reelpulse.settings.v1` | API source, credentials, Facebook scope (pages/via/refresh interval), auto-sync, timeframe |
 | `reelpulse.sync.v1`     | Last sync timestamp and sync count            |
 | `reelpulse.sidebar.v1`  | Desktop sidebar collapsed state               |
 
-- The first run seeds a demo "last synced" timestamp and sync count so the dashboard looks lived in.
-- **Manual sync** in Admin → Sync is simulated: it waits briefly, invalidates the cache, refetches the demo dataset, updates the timestamp, and increments the count.
-- **Auto-sync** is evaluated once per app open. It runs only when auto-sync is enabled and the stored last sync is at least 24 hours old. It is not a background scheduler; scheduling stops when the tab closes.
+- The first run seeds a default "last synced" timestamp and sync count so the dashboard looks lived in.
+- **Manual sync** invalidates the cache and pulls upstream data again. For the Live Facebook source it triggers a fresh server-side scrape (up to ~45 s, toast feedback included).
+- **Auto-sync** is source-aware: once per app open for the 24-hour cadence, or every N minutes on a visible-tab polling loop for the Live Facebook source (server snapshots refresh in the background; the UI never blocks).
 - **Reset workspace** is under Admin → Data. It requires a second click to confirm, clears all `reelpulse.*` keys, restores defaults, and reloads the page. Clearing site data in browser devtools has the same effect.
 - To export the normalized demo dataset as JSON, use Admin → Data → Export.
 
@@ -212,14 +293,20 @@ Credentials are stored in plain text in `localStorage` for demonstration purpose
 
 ---
 
-## Demo data and limitations
+## Data modes and limitations
 
-- All 32 Reels, creators, handles, captions, hashtags, audio tracks, view counts, and engagement metrics are fictional.
-- Poster thumbnails are deterministic SVGs generated in the browser. There are no video files; the "player" is a simulated interface.
-- "View original" links go to platform discovery URLs, not real Reel permalinks.
-- Metrics and velocity are illustrative, not measured from any platform.
-- Live API adapters are stubs and do not make network requests.
-- Keys entered in Admin are client-side only. Do not use this storage approach for real credentials.
+**Curated dataset (default):**
+- 32 real Reels from verified public creators with authentic links, tracks, and metrics — all in-browser, no keys needed.
+- Poster thumbnails are generated in the browser. There are no video files; the "player" is a simulated interface.
+- Rankings and KPIs are measured from this bundled dataset only.
+
+**Live Facebook scrape:**
+- Real public-page data with the caveats listed in [Live Facebook scraping](#live-facebook-scraping-real-time-snapshots).
+- RapidAPI (browser-direct) keeps its key in local storage — acceptable only for personal use; prefer the server route.
+- Unofficial scraping violates Meta's ToS.
+
+**General:**
+- Keys entered in Admin for browser-direct adapters are client-side only.
 - There is no automated test suite. Validation is via strict TypeScript, a production build, and manual browser QA across desktop, tablet, and mobile breakpoints.
 
 ---

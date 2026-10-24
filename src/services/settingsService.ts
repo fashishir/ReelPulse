@@ -1,8 +1,8 @@
-import type { ApiSettings, DataSource, SyncState, Timeframe } from '../types'
+import type { ApiSettings, DataSource, FacebookVia, SyncState, Timeframe } from '../types'
 
 const SETTINGS_KEY = 'reelpulse.settings.v1'
 const SYNC_KEY = 'reelpulse.sync.v1'
-const SOURCES: DataSource[] = ['demo', 'rapidapi', 'apify', 'meta']
+const SOURCES: DataSource[] = ['demo', 'rapidapi', 'apify', 'meta', 'facebook']
 const TIMEFRAMES: Timeframe[] = ['today', 'week', 'month']
 
 export const DEFAULT_SETTINGS: ApiSettings = {
@@ -13,8 +13,22 @@ export const DEFAULT_SETTINGS: ApiSettings = {
   apifyActorId: '',
   metaAccessToken: '',
   metaIgUserId: '',
+  fbVia: 'apify',
+  fbPages: '',
+  fbRefreshMinutes: 5,
   autoSync: true,
   defaultTimeframe: 'today',
+}
+
+/** Clamp for the refresh-interval setting (minutes). */
+function clampRefreshMinutes(value: unknown): number {
+  const minutes = Number(value)
+  if (!Number.isFinite(minutes) || minutes <= 0) return DEFAULT_SETTINGS.fbRefreshMinutes
+  return Math.min(Math.max(Math.floor(minutes), 3), 1440)
+}
+
+function coerceVia(value: unknown): FacebookVia {
+  return value === 'rapidapi' ? 'rapidapi' : 'apify'
 }
 
 export function loadSettings(): ApiSettings {
@@ -33,6 +47,9 @@ export function loadSettings(): ApiSettings {
         : DEFAULT_SETTINGS.defaultTimeframe,
       autoSync:
         typeof parsed.autoSync === 'boolean' ? parsed.autoSync : DEFAULT_SETTINGS.autoSync,
+      fbVia: coerceVia(parsed.fbVia),
+      fbPages: typeof parsed.fbPages === 'string' ? parsed.fbPages : DEFAULT_SETTINGS.fbPages,
+      fbRefreshMinutes: clampRefreshMinutes(parsed.fbRefreshMinutes),
     }
   } catch {
     return { ...DEFAULT_SETTINGS }

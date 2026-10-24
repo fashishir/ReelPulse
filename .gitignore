@@ -5,3 +5,11 @@ dist-ssr
 .DS_Store
 .vite
 *.tsbuildinfo
+
+# Env secrets (APIFY_TOKEN, FB_PAGES, ...)
+.env
+.env.*
+!.env.example
+
+# Vercel project state
+.vercel

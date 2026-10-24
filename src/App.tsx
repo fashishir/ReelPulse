@@ -22,8 +22,14 @@ import {
   saveSettings,
   saveSyncState,
 } from './services/settingsService'
-import { syncNow, setReelProvider } from './services/dataService'
+import { syncNow, setReelProvider, getReelProvider } from './services/dataService'
 import { createRapidApiProvider } from './services/providers/rapidApiProvider'
+import {
+  createFacebookProvider,
+  FACEBOOK_SNAPSHOT_EVENT,
+  type FacebookProviderConfig,
+  type FacebookSnapshotEvent,
+} from './services/providers/facebookProvider'
 import { demoProvider } from './services/providers/demoProvider'
 import { useToast } from './components/ui/Toast'
 import { Sidebar } from './components/shell/Sidebar'
@@ -43,6 +49,23 @@ const EMPTY_COUNTS = Object.fromEntries(
 ) as Record<CategoryId, number>
 
 const AUTO_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+const MIN_FACEBOOK_REFRESH_MINUTES = 3
+
+/** The initial-sync threshold follows the active source. */
+function autoSyncIntervalMs(settings: ApiSettings): number {
+  if (settings.source !== 'facebook') return AUTO_SYNC_INTERVAL_MS
+  return Math.max(MIN_FACEBOOK_REFRESH_MINUTES, settings.fbRefreshMinutes) * 60_000
+}
+
+/** Parse the settings textarea into a page list (empty list = server env). */
+function parseSettingsPages(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 50)
+}
 
 function App() {
   const toast = useToast()
@@ -68,7 +91,16 @@ function App() {
 
   // Auto-switch provider based on settings
   useEffect(() => {
-    if (settings.source === 'rapidapi' && settings.rapidApiKey) {
+    if (settings.source === 'facebook') {
+      const config: FacebookProviderConfig = {
+        via: settings.fbVia,
+      }
+      const pages = parseSettingsPages(settings.fbPages)
+      if (pages.length > 0) {
+        config.pages = pages
+      }
+      setReelProvider(createFacebookProvider(config))
+    } else if (settings.source === 'rapidapi' && settings.rapidApiKey) {
       setReelProvider(
         createRapidApiProvider({
           apiKey: settings.rapidApiKey,
@@ -78,7 +110,13 @@ function App() {
     } else {
       setReelProvider(demoProvider)
     }
-  }, [settings.source, settings.rapidApiKey, settings.rapidApiHost])
+  }, [
+    settings.source,
+    settings.rapidApiKey,
+    settings.rapidApiHost,
+    settings.fbVia,
+    settings.fbPages,
+  ])
 
   const feedRef = useRef<HTMLElement>(null)
   const isSyncingRef = useRef(false)
@@ -120,8 +158,8 @@ function App() {
         saveSyncState(nextState)
         setSyncNonce((nonce) => nonce + 1)
         toast({
-          title: options?.silent ? 'Daily sync complete' : 'Feed synced',
-          description: `${result.reels} reels refreshed on the demo provider. Rankings are up to date.`,
+          title: options?.silent ? 'Background sync complete' : 'Feed synced',
+          description: `${result.reels} reels refreshed via ${getReelProvider().label}. Rankings are up to date.`,
           tone: 'success',
         })
       } catch (cause) {
@@ -143,11 +181,65 @@ function App() {
     if (autoSyncCheckedRef.current) return
     autoSyncCheckedRef.current = true
     if (!settings.autoSync) return
+    const intervalMs = autoSyncIntervalMs(settings)
     const elapsed = Date.now() - new Date(syncStateRef.current.lastSyncedAt).getTime()
-    if (elapsed >= AUTO_SYNC_INTERVAL_MS) {
+    if (elapsed >= intervalMs) {
       void runSync({ silent: true })
     }
-  }, [settings.autoSync, runSync])
+  }, [settings.autoSync, runSync, settings.source, settings.fbRefreshMinutes])
+
+  // While the Live Facebook source is active, keep polling the server
+  // snapshot every N minutes — but only while the tab is visible. The
+  // server serves instantly and refreshes in the background, so a poll
+  // never blocks the UI.
+  useEffect(() => {
+    if (settings.source !== 'facebook') return
+    const intervalMs = Math.max(
+      MIN_FACEBOOK_REFRESH_MINUTES,
+      settings.fbRefreshMinutes,
+    ) * 60_000
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      if (isSyncingRef.current) return
+      setSyncNonce((nonce) => nonce + 1)
+    }, intervalMs)
+    return () => window.clearInterval(intervalId)
+  }, [settings.source, settings.fbRefreshMinutes])
+
+  // The Facebook provider reports the true snapshot age on every fetch,
+  // including silent polls. Reflect it in the sync state (without inflating
+  // the sync counter) and warn once when the snapshot goes stale.
+  const staleToastRef = useRef(false)
+  useEffect(() => {
+    if (settings.source !== 'facebook') return
+    const handleSnapshotEvent = (event: Event) => {
+      const detail = (event as FacebookSnapshotEvent).detail
+      if (!detail?.syncedAt) return
+
+      const nextState: SyncState = {
+        lastSyncedAt: detail.syncedAt,
+        syncCount: syncStateRef.current.syncCount,
+      }
+      syncStateRef.current = nextState
+      setSyncState(nextState)
+      saveSyncState(nextState)
+
+      if (detail.stale && !staleToastRef.current) {
+        staleToastRef.current = true
+        toast({
+          title: 'Snapshot is a few minutes old',
+          description:
+            detail.warning ??
+            'The fresh Facebook scrape failed on the server; showing the last good snapshot. Try Sync now.',
+          tone: 'warning',
+        })
+      } else if (!detail.stale && staleToastRef.current) {
+        staleToastRef.current = false
+      }
+    }
+    window.addEventListener(FACEBOOK_SNAPSHOT_EVENT, handleSnapshotEvent)
+    return () => window.removeEventListener(FACEBOOK_SNAPSHOT_EVENT, handleSnapshotEvent)
+  }, [settings.source, toast])
 
   const handleSync = useCallback(() => {
     void runSync()
@@ -334,7 +426,12 @@ function App() {
                   </p>
                 </div>
                 <p className="hidden shrink-0 text-[9px] font-medium uppercase tracking-[0.1em] text-slate-500 sm:block">
-                  {PLATFORM_LABEL[filters.platform]} · {settings.source === 'demo' ? 'Real Curated Data' : 'Live RapidAPI'}
+                  {PLATFORM_LABEL[filters.platform]} ·{' '}
+                  {settings.source === 'demo'
+                    ? 'Real Curated Data'
+                    : settings.source === 'facebook'
+                      ? 'Live Facebook scraping'
+                      : 'Live RapidAPI'}
                 </p>
               </div>
 

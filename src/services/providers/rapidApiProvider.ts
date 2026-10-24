@@ -1,12 +1,12 @@
 import type {
   AudioTrack,
-  CategoryId,
   MetricSet,
   MetricsByTimeframe,
   Platform,
   Reel,
 } from '../../types'
 import { ProviderNotWiredError, type RapidApiConfig, type ReelProvider } from './types'
+import { detectCategory, extractHashtags, extractHook } from '../../lib/classify'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -17,41 +17,7 @@ const DEFAULT_COUNT = 20
 const WEEK_FACTOR = 5.5
 const MONTH_FACTOR = 18
 
-/** Keywords that map captions / hashtags to a category. */
-const CATEGORY_KEYWORDS: Record<CategoryId, string[]> = {
-  comedy: ['funny', 'comedy', 'meme', 'lol', 'humor', 'laugh', 'joke', 'skit', 'prank', 'parody'],
-  tech: ['tech', 'coding', 'programming', 'developer', 'ai', 'software', 'startup', 'gadget', 'computer', 'app'],
-  fitness: ['fitness', 'gym', 'workout', 'exercise', 'health', 'gains', 'muscle', 'yoga', 'crossfit', 'training'],
-  food: ['food', 'recipe', 'cooking', 'chef', 'foodie', 'baking', 'meal', 'kitchen', 'restaurant', 'delicious'],
-  fashion: ['fashion', 'style', 'outfit', 'ootd', 'beauty', 'makeup', 'clothing', 'trend', 'model', 'designer'],
-  travel: ['travel', 'wanderlust', 'vacation', 'explore', 'adventure', 'trip', 'destination', 'tourism', 'backpack', 'beach'],
-  gaming: ['gaming', 'gamer', 'game', 'esports', 'twitch', 'streamer', 'playstation', 'xbox', 'nintendo', 'fortnite'],
-  finance: ['finance', 'money', 'investing', 'stock', 'crypto', 'bitcoin', 'wealth', 'trading', 'budget', 'savings'],
-  music: ['music', 'song', 'singer', 'rapper', 'dj', 'hiphop', 'concert', 'guitar', 'beats', 'album'],
-  education: ['education', 'learn', 'study', 'school', 'teacher', 'student', 'science', 'math', 'knowledge', 'tutorial'],
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Detect category from caption text and hashtags.
- * Returns the category with the highest keyword hit-count, falling back to 'comedy'.
- */
-function detectCategory(caption: string, hashtags: string[]): CategoryId {
-  const blob = `${caption} ${hashtags.join(' ')}`.toLowerCase()
-
-  let bestCategory: CategoryId = 'comedy'
-  let bestScore = 0
-
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS) as [CategoryId, string[]][]) {
-    const score = keywords.reduce((acc, kw) => acc + (blob.includes(kw) ? 1 : 0), 0)
-    if (score > bestScore) {
-      bestScore = score
-      bestCategory = category
-    }
-  }
-  return bestCategory
-}
 
 /** Safely read a nested property that might be at multiple paths. */
 function dig(obj: Record<string, unknown>, ...paths: string[]): unknown {
@@ -72,23 +38,6 @@ function toNum(val: unknown, fallback = 0): number {
   if (typeof val === 'number' && Number.isFinite(val)) return val
   const n = Number(val)
   return Number.isFinite(n) ? n : fallback
-}
-
-/** Extract hashtags from a caption string. */
-function extractHashtags(caption: string): string[] {
-  const matches = caption.match(/#[\w\u00C0-\u024F]+/g)
-  return matches ? matches.map((h) => h.slice(1).toLowerCase()) : []
-}
-
-/**
- * Derive a plausible first-sentence "hook" from a caption.
- * Returns up to the first sentence or the first 100 chars, whichever is shorter.
- */
-function extractHook(caption: string): string {
-  if (!caption) return ''
-  const firstLine = caption.split('\n')[0]
-  const firstSentence = firstLine.split(/[.!?]/)[0]
-  return firstSentence.length > 100 ? `${firstSentence.slice(0, 97)}...` : firstSentence
 }
 
 /** Build `MetricsByTimeframe` by extrapolating from a single snapshot. */

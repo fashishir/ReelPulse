@@ -46,9 +46,12 @@ export function invalidateDataCache(): void {
   inFlight = null
 }
 
-async function loadDataset(): Promise<Reel[]> {
+async function loadDataset(options?: { refresh?: boolean }): Promise<Reel[]> {
   const now = Date.now()
+  const forceRefresh = options?.refresh === true
+
   if (
+    !forceRefresh &&
     datasetCache &&
     datasetCache.providerId === activeProvider.id &&
     now - datasetCache.cachedAt < CACHE_TTL_MS
@@ -60,7 +63,7 @@ async function loadDataset(): Promise<Reel[]> {
 
   const providerId = activeProvider.id
   inFlight = activeProvider
-    .fetchReels()
+    .fetchReels({ refresh: forceRefresh })
     .then((reels) => {
       datasetCache = { providerId, cachedAt: Date.now(), reels }
       return reels
@@ -309,8 +312,10 @@ export async function syncNow(): Promise<SyncResult> {
   if (isDemo) {
     await sleep(350)
   }
+  // Manual sync always pushes through to the upstream. For the Facebook
+  // scrape provider this starts (and waits up to ~45s for) a fresh scrape.
   invalidateDataCache()
-  const reels = await loadDataset()
+  const reels = await loadDataset({ refresh: true })
   return { syncedAt: new Date().toISOString(), reels: reels.length }
 }
 

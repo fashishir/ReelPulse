@@ -23,7 +23,7 @@ export const CATEGORY_IDS = [
 export type CategoryId = (typeof CATEGORY_IDS)[number]
 export type CategoryFilter = CategoryId | 'all'
 
-export type DataSource = 'demo' | 'rapidapi' | 'apify' | 'meta'
+export type DataSource = 'demo' | 'rapidapi' | 'apify' | 'meta' | 'facebook'
 
 export interface Creator {
   name: string
@@ -106,6 +106,8 @@ export interface AudioSummary {
   platforms: Platform[]
 }
 
+export type FacebookVia = 'apify' | 'rapidapi'
+
 export interface ApiSettings {
   source: DataSource
   rapidApiKey: string
@@ -114,6 +116,12 @@ export interface ApiSettings {
   apifyActorId: string
   metaAccessToken: string
   metaIgUserId: string
+  /** Which upstream the server-side Facebook scraper should use. */
+  fbVia: FacebookVia
+  /** Tracked Facebook pages (URLs or handles), one per line. Blank = FB_PAGES env. */
+  fbPages: string
+  /** How often the live Facebook snapshot re-polls while a tab is open. */
+  fbRefreshMinutes: number
   autoSync: boolean
   defaultTimeframe: Timeframe
 }
